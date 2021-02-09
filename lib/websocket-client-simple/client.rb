@@ -21,12 +21,16 @@ module WebSocket
                                   uri.port || (uri.scheme == 'wss' ? 443 : 80))
           if ['https', 'wss'].include? uri.scheme
             ctx = OpenSSL::SSL::SSLContext.new
-            ctx.ssl_version = options[:ssl_version] || 'SSLv23'
-            ctx.verify_mode = options[:verify_mode] || OpenSSL::SSL::VERIFY_NONE #use VERIFY_PEER for verification
-            cert_store = OpenSSL::X509::Store.new
-            cert_store.set_default_paths
+            ctx.ssl_version = options[:ssl_version] if options[:ssl_version]
+            ctx.verify_mode = options[:verify_mode] if options[:verify_mode]
+            cert_store = options[:cert_store]
+            unless cert_store
+              cert_store = OpenSSL::X509::Store.new
+              cert_store.set_default_paths
+            end
             ctx.cert_store = cert_store
             @socket = ::OpenSSL::SSL::SSLSocket.new(@socket, ctx)
+            @socket.hostname = uri.host
             @socket.connect
           end
           @handshake = ::WebSocket::Handshake::Client.new :url => url, :headers => options[:headers]
@@ -73,7 +77,7 @@ module WebSocket
           frame = ::WebSocket::Frame::Outgoing::Client.new(:data => data, :type => type, :version => @handshake.version)
           begin
             @socket.write frame.to_s
-          rescue Errno::EPIPE => e
+          rescue Errno::EPIPE, OpenSSL::SSL::SSLError => e
             @pipe_broken = true
             emit :__close, e
           end
